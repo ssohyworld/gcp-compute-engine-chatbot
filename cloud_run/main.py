@@ -3,7 +3,7 @@ import json
 import uuid
 import asyncio
 from datetime import datetime
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Tuple
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request, Header
@@ -18,9 +18,9 @@ from google.genai import types
 from google.genai.errors import APIError
 
 app = FastAPI(
-    title="Gemini Web Chatbot",
-    description="Gemini 3.8 Flash & 3.7 Flash 기반 로컬 웹 챗봇 서비스",
-    version="1.0.0"
+    title="Gemini Web Chatbot (Cloud Run)",
+    description="GCP Cloud Run 기반 Gemini AI 실시간 웹 챗봇 서비스",
+    version="2.0.0"
 )
 
 # CORS 설정
@@ -39,12 +39,48 @@ DATA_DIR = BASE_DIR / "data"
 DATA_DIR.mkdir(exist_ok=True)
 SESSIONS_FILE = DATA_DIR / "sessions.json"
 
-# API 키 확인 (GEMINI_API_KEY 우선, GOOGLE_API_KEY 대체)
-def get_api_key() -> tuple[Optional[str], str]:
+# GCP Secret Manager 키 캐시 (불필요한 중복 API 호출 방지)
+_CACHED_SECRET_KEY: Optional[str] = None
+
+def get_secret_from_secret_manager() -> Optional[str]:
+    """GCP Secret Manager에서 안전하게 GEMINI_API_KEY를 동적 조회 (Fallback)"""
+    global _CACHED_SECRET_KEY
+    if _CACHED_SECRET_KEY:
+        return _CACHED_SECRET_KEY
+
+    # 1. 환경변수에서 프로젝트 번호/ID 자동 탐색
+    project_id = os.environ.get("GOOGLE_CLOUD_PROJECT") or os.environ.get("GCP_PROJECT") or "404380364167"
+    secret_id = os.environ.get("GEMINI_SECRET_NAME", "GEMINI_API_KEY")
+
+    try:
+        from google.cloud import secretmanager
+        client = secretmanager.SecretManagerServiceClient()
+        name = f"projects/{project_id}/secrets/{secret_id}/versions/latest"
+        response = client.access_secret_version(request={"name": name})
+        secret_value = response.payload.data.decode("UTF-8").strip()
+        if secret_value:
+            _CACHED_SECRET_KEY = secret_value
+            print(f"[INFO] Secret Manager ({name})로부터 API 키를 안전하게 로드했습니다.")
+            return _CACHED_SECRET_KEY
+    except Exception as e:
+        # 민감 정보(키 값)가 로그에 남지 않도록 에러 타입만 간략히 로깅
+        print(f"[WARN] Secret Manager 자동 조회 실패 (환경변수 주입 모드 사용 권장): {type(e).__name__}")
+    return None
+
+# API 키 확인 함수 (1. Cloud Run Secret 환경변수 주입 -> 2. Secret Manager API 직접 조회)
+def get_api_key() -> Tuple[Optional[str], str]:
+    # 1순위: Cloud Run --set-secrets로 안전하게 주입된 환경변수
     if "GEMINI_API_KEY" in os.environ and os.environ["GEMINI_API_KEY"]:
-        return os.environ["GEMINI_API_KEY"], "GEMINI_API_KEY"
+        return os.environ["GEMINI_API_KEY"], "Cloud Run Secret Injected (GEMINI_API_KEY)"
+    
     if "GOOGLE_API_KEY" in os.environ and os.environ["GOOGLE_API_KEY"]:
-        return os.environ["GOOGLE_API_KEY"], "GOOGLE_API_KEY"
+        return os.environ["GOOGLE_API_KEY"], "Environment Variable (GOOGLE_API_KEY)"
+    
+    # 2순위: Secret Manager API 직접 Fallback 조회
+    secret_key = get_secret_from_secret_manager()
+    if secret_key:
+        return secret_key, "Secret Manager Direct API (projects/404380364167/secrets/GEMINI_API_KEY)"
+    
     return None, "NONE"
 
 def get_genai_client() -> genai.Client:
@@ -52,7 +88,7 @@ def get_genai_client() -> genai.Client:
     if not api_key:
         raise HTTPException(
             status_code=500,
-            detail="Gemini API 키가 설정되지 않았습니다. 환경변수 GEMINI_API_KEY 또는 GOOGLE_API_KEY를 확인하세요."
+            detail="Gemini API 키가 설정되지 않았습니다. Cloud Run Secret Manager 주입 설정을 확인하세요."
         )
     return genai.Client(api_key=api_key)
 
@@ -151,6 +187,12 @@ def get_request_user_id(request: Request, x_user_id: Optional[str] = None) -> st
 
 # --- API Endpoints ---
 
+@app.get("/healthz")
+@app.get("/api/health")
+def health_check():
+    """Cloud Run 상태 점검(Liveness / Startup Probe)용 엔드포인트"""
+    return {"status": "ok", "service": "gemini-cloud-run-chatbot"}
+
 @app.get("/api/status")
 def get_system_status():
     api_key, key_source = get_api_key()
@@ -160,6 +202,7 @@ def get_system_status():
         "api_key_source": key_source,
         "default_model": "gemini-3.8-flash",
         "web_search_available": True,
+        "environment": "Cloud Run Serverless Container",
         "timestamp": datetime.now().isoformat()
     }
 
@@ -176,7 +219,7 @@ async def chat_stream(req: ChatRequest):
     if not api_key:
         raise HTTPException(
             status_code=500,
-            detail="Gemini API 키가 환경변수에 없습니다. GEMINI_API_KEY를 설정해주세요."
+            detail="Gemini API 키가 설정되지 않았습니다. Secret Manager 연동을 확인하세요."
         )
 
     if not req.messages:
@@ -186,7 +229,7 @@ async def chat_stream(req: ChatRequest):
     if latest_msg.role != "user":
         raise HTTPException(status_code=400, detail="마지막 메시지는 사용자(user)의 것이어야 합니다.")
 
-    # 멀티턴 히스토리 빌드 (마지막 사용자 메시지 제외)
+    # 멀티턴 히스토리 빌드
     history_contents = []
     for msg in req.messages[:-1]:
         role = "user" if msg.role == "user" else "model"
@@ -224,14 +267,12 @@ async def chat_stream(req: ChatRequest):
     async def event_generator():
         client = get_genai_client()
         try:
-            # 채팅 세션 생성
             chat = client.chats.create(
                 model=req.model,
                 history=history_contents,
                 config=config
             )
 
-            # 스트리밍 메시지 전송
             response_stream = chat.send_message_stream(user_prompt)
 
             full_reply = []
@@ -243,9 +284,8 @@ async def chat_stream(req: ChatRequest):
                     full_reply.append(chunk.text)
                     data = json.dumps({"chunk": chunk.text}, ensure_ascii=False)
                     yield f"data: {data}\n\n"
-                    await asyncio.sleep(0.005)  # 부드러운 스트리밍 버퍼링
+                    await asyncio.sleep(0.005)
 
-                # 실시간 Google Search Grounding 메타데이터 추출
                 if hasattr(chunk, 'candidates') and chunk.candidates:
                     for cand in chunk.candidates:
                         gm = getattr(cand, 'grounding_metadata', None)
@@ -265,7 +305,6 @@ async def chat_stream(req: ChatRequest):
                                         if uri and not any(s['uri'] == uri for s in search_sources):
                                             search_sources.append({'title': title or '출처 웹사이트', 'uri': uri})
 
-            # 완료 알림 (Google Search 정보 포함)
             done_payload = {
                 "done": True,
                 "model": req.model,
@@ -310,7 +349,6 @@ def list_sessions(request: Request, x_user_id: Optional[str] = Header(None, alia
                 "updated_at": data.get("updated_at"),
                 "message_count": len(data.get("messages", []))
             })
-    # 최신 업데이트 순 정렬
     session_list.sort(key=lambda x: x.get("updated_at", ""), reverse=True)
     return {"sessions": session_list}
 
@@ -381,10 +419,10 @@ def index():
     if index_file.exists():
         with open(index_file, "r", encoding="utf-8") as f:
             return f.read()
-    return "<h1>Gemini Chatbot Server is running. Static files missing.</h1>"
+    return "<h1>Gemini Cloud Run Server is running.</h1>"
 
 if __name__ == "__main__":
     import uvicorn
-    port = int(os.environ.get("PORT", 8000))
-    print(f"🚀 Gemini Web Chatbot 서버 시작: http://localhost:{port}")
-    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=True)
+    port = int(os.environ.get("PORT", 8080))
+    print(f"🚀 Gemini Web Chatbot (Cloud Run) 시작: http://0.0.0.0:{port}")
+    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=False)

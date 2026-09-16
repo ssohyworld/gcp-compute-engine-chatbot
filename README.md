@@ -89,18 +89,22 @@ HTTP에서 공인 HTTPS 환경으로 무중단 전환하기 위해 다음과 같
 ## 📁 프로젝트 파일 구조
 
 ```
-gcp-compute-engine-chatbot/
-├── main.py                    # FastAPI 서버, Gemini SDK 연동, 세션 및 스트리밍 API
-├── requirements.txt           # Python 필수 패키지 목록
-├── run.sh                     # 로컬 실행 스크립트
-├── README.md                  # 애플리케이션 세부 설명서
-├── .gitignore                 # Git 제외 설정 (보안 키, 세션 데이터, 캐시 등 차단)
-├── static/                    # 프론트엔드 정적 파일
-│   ├── index.html             # 웹 챗봇 메인 UI
-│   ├── style.css              # 스타일시트 (다크/라이트 모드, 반응형 레이아웃)
-│   └── app.js                 # 실시간 SSE 챗봇 상호작용 및 UI 로직
-└── data/
-    └── .gitkeep               # 세션 디렉터리 유지 (sessions.json은 .gitignore로 제외)
+DAY10/
+├── README.md                      # 프로젝트 전체 안내 및 기술 문서 (본 파일)
+├── DEPLOYMENT_LOG.md              # 배포 전 과정 상세 실행 로그 및 기록
+├── .gitignore                     # Git 제외 설정 (보안 키, 로그, venv 등 완벽 차단)
+├── 수업필기노트.rtf              # 수업 필기 및 요구사항 메모
+└── gcp-compute-engine-chatbot/    # 챗봇 웹 애플리케이션 저장소
+    ├── main.py                    # FastAPI 서버, Gemini SDK 연동, 세션 및 스트리밍 API
+    ├── requirements.txt           # Python 필수 패키지 목록
+    ├── run.sh                     # 로컬 실행 스크립트
+    ├── README.md                  # 애플리케이션 세부 설명서
+    ├── static/                    # 프론트엔드 정적 파일
+    │   ├── index.html             # 웹 챗봇 메인 UI
+    │   ├── style.css              # 스타일시트 (다크/라이트 모드, 반응형 레이아웃)
+    │   └── app.js                 # 실시간 SSE 챗봇 상호작용 및 UI 로직
+    └── data/
+        └── sessions.json          # 대화 히스토리 및 세션 데이터
 ```
 
 ---

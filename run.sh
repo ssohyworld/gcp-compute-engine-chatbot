@@ -7,9 +7,9 @@ echo "============================================================"
 
 # 환경변수 확인
 if [ -n "$GEMINI_API_KEY" ]; then
-    echo "✅ 환경변수 GEMINI_API_KEY 확인됨: ${GEMINI_API_KEY:0:6}...${GEMINI_API_KEY: -4}"
+    echo "✅ 환경변수 GEMINI_API_KEY가 안전하게 설정되어 있습니다."
 elif [ -n "$GOOGLE_API_KEY" ]; then
-    echo "✅ 환경변수 GOOGLE_API_KEY 확인됨: ${GOOGLE_API_KEY:0:6}...${GOOGLE_API_KEY: -4}"
+    echo "✅ 환경변수 GOOGLE_API_KEY가 안전하게 설정되어 있습니다."
 else
     echo "⚠️  경고: GEMINI_API_KEY 또는 GOOGLE_API_KEY 환경변수가 설정되지 않았습니다."
     echo "   실행 전 'export GEMINI_API_KEY=your_key'를 입력해 주세요."
