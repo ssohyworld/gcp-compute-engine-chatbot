@@ -793,9 +793,15 @@
 
   function adjustTextareaHeight() {
     const el = elements.promptInput;
+    if (!el) return;
     el.style.height = 'auto';
-    const newH = Math.min(el.scrollHeight, 160);
-    el.style.height = `${newH}px`;
+    if (!el.value || el.value.length === 0) {
+      el.style.height = window.innerWidth <= 768 ? '26px' : '28px';
+    } else {
+      const maxH = window.innerWidth <= 768 ? 120 : 180;
+      const newH = Math.min(el.scrollHeight, maxH);
+      el.style.height = `${newH}px`;
+    }
   }
 
   // --- File Attachment Handler ---
