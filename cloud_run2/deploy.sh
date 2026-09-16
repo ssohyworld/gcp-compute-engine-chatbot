@@ -56,6 +56,7 @@ gcloud run deploy "${SERVICE_NAME}" \
     --project="${PROJECT_ID}" \
     --platform=managed \
     --allow-unauthenticated \
+    --quiet \
     --port=8080 \
     --min-instances=0 \
     --max-instances=5 \

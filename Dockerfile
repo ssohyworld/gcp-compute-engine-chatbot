@@ -4,7 +4,7 @@ FROM python:3.11-slim
 # 2. 파이썬 버퍼링 및 바이트코드 생성 비활성화
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PORT=8000
+    PORT=8080
 
 # 3. 컨테이너 내부 작업 디렉터리 설정
 WORKDIR /app
@@ -20,7 +20,7 @@ COPY . .
 RUN mkdir -p /app/data
 
 # 7. 서비스 포트 개방
-EXPOSE 8000
+EXPOSE 8080
 
-# 8. Uvicorn 기반 FastAPI 서버 구동
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+# 8. Uvicorn 기반 FastAPI 서버 구동 (Cloud Run 동적 포트 수신)
+CMD exec uvicorn main:app --host 0.0.0.0 --port ${PORT:-8080}

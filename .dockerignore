@@ -46,3 +46,7 @@ Thumbs.db
 .vscode/
 *.sublime-project
 *.sublime-workspace
+
+# Sub directories
+cloud_run/
+cloud_run2/
